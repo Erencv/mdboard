@@ -6,10 +6,17 @@ from store import (
 )
 from render import render_markdown
 
+def _derive_title(content):
+    """Title is optional: fall back to the first non-empty line of the markdown
+    (stripped of leading #), else 'Untitled'."""
+    for line in (content or "").splitlines():
+        s = line.strip().lstrip("#").strip()
+        if s:
+            return s[:80]
+    return "Untitled"
+
 def create_app(db_path=":memory:"):
     app = Flask(__name__, static_folder="static")
-    # ONE shared connection for the app's lifetime (schema created on it, so
-    # a :memory: db persists across requests; check_same_thread=False set in get_db).
     conn = get_db(db_path)
     init_schema(conn)
     app.config["CONN"] = conn
@@ -32,10 +39,11 @@ def create_app(db_path=":memory:"):
     @app.route("/api/docs", methods=["POST"])
     def api_create_doc():
         data = request.get_json(silent=True) or {}
+        content = data.get("content") or ""
+        title = (data.get("title") or "").strip() or _derive_title(content)
         author = (data.get("author") or "").strip() or "anonymous"
         try:
-            doc = create_doc(db(), (data.get("title") or "").strip(),
-                             data.get("content") or "", author)
+            doc = create_doc(db(), title, content, author)
         except ValueError as e:
             return jsonify({"error": str(e)}), 400
         return jsonify(doc), 201

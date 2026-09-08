@@ -15,8 +15,8 @@ def get_doc(conn, doc_id):
     return dict(row) if row else None
 
 def create_doc(conn, title, content, author):
-    if not title or not content:
-        raise ValueError("Title and content cannot be empty")
+    if not content:
+        raise ValueError("Content cannot be empty")
     conn.row_factory = Row
     cursor = conn.cursor()
     cursor.execute("INSERT INTO docs (title, content, author) VALUES (?, ?, ?)", (title, content, author))

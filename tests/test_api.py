@@ -66,3 +66,16 @@ def test_note_empty_quote_400(client):
     r = client.post(f"/api/docs/{doc_id}/notes",
                     json={"quote": "", "note": "x", "author": "e", "start_pos": 0, "end_pos": 0})
     assert r.status_code == 400
+
+
+def test_optional_title_derived_from_heading(client):
+    r = client.post("/api/docs", json={"content": "# Hello World\n\nbody", "author": "e"})
+    assert r.status_code == 201 and r.json["title"] == "Hello World"
+
+def test_optional_title_from_first_line(client):
+    r = client.post("/api/docs", json={"content": "plain first line\nsecond", "author": "e"})
+    assert r.status_code == 201 and r.json["title"] == "plain first line"
+
+def test_optional_title_untitled_when_no_text(client):
+    r = client.post("/api/docs", json={"content": "# ", "author": "e"})
+    assert r.status_code == 201 and r.json["title"] == "Untitled"

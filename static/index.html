@@ -87,7 +87,7 @@
 <body>
     <div class="container">
         <div class="new-doc-panel">
-            <input type="text" id="title" placeholder="Title">
+            <input type="text" id="title" placeholder="Title (optional)">
             <input type="text" id="author" placeholder="Author">
             <textarea id="content" placeholder="Paste markdown here..."></textarea>
             <input type="file" id="file" accept=".md,.markdown,.txt">
@@ -154,21 +154,18 @@
 
         // Add new document
         addBtn.addEventListener('click', async () => {
-            const title = titleInput.value.trim();
-            const content = contentInput.value.trim();
+            let title = titleInput.value.trim();
             const author = authorInput.value.trim();
-            if (!title) {
-                alert('Title is required');
-                return;
-            }
             const file = fileInput.files[0];
+            let content = contentInput.value.trim();
             if (file) {
-                const reader = new FileReader();
-                reader.onload = (e) => {
-                    contentInput.value = e.target.result;
-                    titleInput.value = file.name.replace(/\.[^/.]+$/, '');
-                };
-                reader.readAsText(file);
+                content = (await file.text()).trim();
+                contentInput.value = content;
+                if (!title) title = file.name.replace(/\.[^/.]+$/, '');
+            }
+            if (!content) {
+                alert('Paste some markdown or choose a file first');
+                return;
             }
             try {
                 const response = await fetch('/api/docs', {
