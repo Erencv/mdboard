@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>BOARD</title>
+    <style>
+        body {
+            background-color: #0d1117;
+            color: #e6edf3;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
+            margin: 0;
+            padding: 0;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+        }
+        .container {
+            max-width: 800px;
+            width: 100%;
+            padding: 20px;
+        }
+        .panel {
+            background-color: #161b22;
+            border-radius: 8px;
+            padding: 20px;
+            margin-bottom: 20px;
+        }
+        .card {
+            background-color: #161b22;
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 10px;
+            display: flex;
+            flex-direction: column;
+        }
+        .card a {
+            color: #e6edf3;
+            text-decoration: none;
+        }
+        .card a:hover {
+            text-decoration: underline;
+        }
+        .card .meta {
+            color: #8b949e;
+        }
+        .card .delete-btn {
+            background-color: #58a6ff;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+        }
+        .card .delete-btn:hover {
+            background-color: #3498db;
+        }
+        .card .delete-btn:active {
+            background-color: #2980b9;
+        }
+        .new-doc-panel {
+            display: flex;
+            flex-direction: column;
+            margin-bottom: 20px;
+        }
+        .new-doc-panel input, .new-doc-panel textarea {
+            margin-bottom: 10px;
+            padding: 10px;
+            border: 1px solid #30363d;
+            border-radius: 4px;
+        }
+        .new-doc-panel button {
+            background-color: #58a6ff;
+            border: none;
+            border-radius: 4px;
+            padding: 10px 20px;
+            cursor: pointer;
+        }
+        .new-doc-panel button:hover {
+            background-color: #3498db;
+        }
+        .new-doc-panel button:active {
+            background-color: #2980b9;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="new-doc-panel">
+            <input type="text" id="title" placeholder="Title">
+            <input type="text" id="author" placeholder="Author">
+            <textarea id="content" placeholder="Paste markdown here..."></textarea>
+            <input type="file" id="file" accept=".md,.markdown,.txt">
+            <button id="add-btn">Add to board</button>
+        </div>
+        <div id="doc-list"></div>
+    </div>
+
+    <script>
+        const authorInput = document.getElementById('author');
+        const titleInput = document.getElementById('title');
+        const contentInput = document.getElementById('content');
+        const fileInput = document.getElementById('file');
+        const addBtn = document.getElementById('add-btn');
+        const docList = document.getElementById('doc-list');
+
+        // Load author from localStorage
+        authorInput.value = localStorage.getItem('mdboard_author') || '';
+
+        // Save author to localStorage on change
+        authorInput.addEventListener('input', () => {
+            localStorage.setItem('mdboard_author', authorInput.value);
+        });
+
+        // Fetch and render documents
+        async function fetchDocs() {
+            try {
+                const response = await fetch('/api/docs');
+                const docs = await response.json();
+                renderDocs(docs);
+            } catch (error) {
+                console.error('Error fetching docs:', error);
+                docList.innerHTML = '<p class="card">No documents found.</p>';
+            }
+        }
+
+        // Render documents as cards
+        function renderDocs(docs) {
+            docList.innerHTML = '';
+            if (docs.length === 0) {
+                docList.innerHTML = '<p class="card">No documents found.</p>';
+                return;
+            }
+            docs.forEach(doc => {
+                const card = document.createElement('div');
+                card.className = 'card';
+                card.innerHTML = `
+                    <a href="/doc/${doc.id}">${doc.title}</a>
+                    <div class="meta">by ${doc.author} · ${new Date(doc.created_at).toLocaleString()}</div>
+                    <button class="delete-btn" data-id="${doc.id}">Delete</button>
+                `;
+                card.querySelector('.delete-btn').addEventListener('click', async (e) => {
+                    const id = e.target.getAttribute('data-id');
+                    try {
+                        await fetch(`/api/docs/${id}`, { method: 'DELETE' });
+                        fetchDocs();
+                    } catch (error) {
+                        console.error('Error deleting doc:', error);
+                    }
+                });
+                docList.appendChild(card);
+            });
+        }
+
+        // Add new document
+        addBtn.addEventListener('click', async () => {
+            const title = titleInput.value.trim();
+            const content = contentInput.value.trim();
+            const author = authorInput.value.trim();
+            if (!title) {
+                alert('Title is required');
+                return;
+            }
+            const file = fileInput.files[0];
+            if (file) {
+                const reader = new FileReader();
+                reader.onload = (e) => {
+                    contentInput.value = e.target.result;
+                    titleInput.value = file.name.replace(/\.[^/.]+$/, '');
+                };
+                reader.readAsText(file);
+            }
+            try {
+                const response = await fetch('/api/docs', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({ title, content, author })
+                });
+                if (response.ok) {
+                    titleInput.value = '';
+                    contentInput.value = '';
+                    fileInput.value = '';
+                    fetchDocs();
+                } else {
+                    const error = await response.json();
+                    alert(error.message);
+                }
+            } catch (error) {
+                console.error('Error adding doc:', error);
+            }
+        });
+
+        // Initial fetch
+        fetchDocs();
+    </script>
+</body>
+</html>
