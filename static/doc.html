@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>MDBoard · Document</title>
+<link rel="stylesheet" href="/static/pygments.css">
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e;
+    --accent:#58a6ff; --border:#30363d; --hl:#f2cc6055; --hl-strong:#f2cc60;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--text);
+    font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    line-height:1.6}
+  header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);
+    padding:12px 20px;display:flex;align-items:center;gap:16px;z-index:20}
+  header a.back{color:var(--accent);text-decoration:none;font-size:14px;white-space:nowrap}
+  header .meta{color:var(--muted);font-size:13px}
+  header h1{font-size:16px;margin:0;font-weight:600}
+  .wrap{display:flex;gap:24px;max-width:1200px;margin:0 auto;padding:24px 20px;align-items:flex-start}
+  #content{flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;padding:28px 32px}
+  aside{width:300px;flex-shrink:0;position:sticky;top:80px}
+  aside h2{font-size:13px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:0 0 12px}
+  .note-card{background:var(--panel);border:1px solid var(--border);border-radius:8px;
+    padding:12px 14px;margin-bottom:10px;font-size:14px;cursor:pointer}
+  .note-card:hover{border-color:var(--accent)}
+  .note-card .quote{color:var(--hl-strong);font-style:italic;border-left:2px solid var(--hl-strong);
+    padding-left:8px;margin-bottom:6px;font-size:13px}
+  .note-card .body{color:var(--text)}
+  .note-card .foot{color:var(--muted);font-size:12px;margin-top:8px;display:flex;justify-content:space-between}
+  .note-card .del{color:#f85149;text-decoration:none}
+  .empty{color:var(--muted);font-size:14px}
+  mark.hl{background:var(--hl);color:inherit;border-radius:2px;padding:1px 0;cursor:pointer}
+  mark.hl.active{background:var(--hl-strong);color:#0d1117}
+  /* rendered markdown */
+  #content h1,#content h2{border-bottom:1px solid var(--border);padding-bottom:.3em}
+  #content code{background:#0d1117;padding:.15em .4em;border-radius:4px;font-size:.9em}
+  #content pre{background:#0d1117;border:1px solid var(--border);border-radius:8px;padding:14px;overflow:auto}
+  #content pre code{background:none;padding:0}
+  #content blockquote{border-left:3px solid var(--border);margin:0;padding-left:16px;color:var(--muted)}
+  #content table{border-collapse:collapse}#content th,#content td{border:1px solid var(--border);padding:6px 12px}
+  #content a{color:var(--accent)}
+  #content img{max-width:100%}
+  /* selection popup */
+  #popup{position:absolute;display:none;background:var(--panel);border:1px solid var(--border);
+    border-radius:8px;padding:10px;box-shadow:0 8px 24px #0008;z-index:30;width:260px}
+  #popup textarea{width:100%;height:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);
+    border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical}
+  #popup .row{display:flex;gap:8px;margin-top:8px;justify-content:flex-end}
+  button{font-family:inherit;font-size:13px;border-radius:6px;padding:6px 12px;cursor:pointer;border:1px solid var(--border)}
+  button.primary{background:var(--accent);color:#0d1117;border-color:var(--accent);font-weight:600}
+  button.ghost{background:transparent;color:var(--muted)}
+</style>
+</head>
+<body>
+<header>
+  <a class="back" href="/">← Board</a>
+  <h1 id="title">Loading…</h1>
+  <span class="meta" id="meta"></span>
+</header>
+<div class="wrap">
+  <article id="content"></article>
+  <aside>
+    <h2>Notes &amp; highlights</h2>
+    <div id="notes"><p class="empty">Select any text in the document to add a note.</p></div>
+  </aside>
+</div>
+
+<div id="popup">
+  <textarea id="popup-note" placeholder="Add a note (optional)…"></textarea>
+  <div class="row">
+    <button class="ghost" id="popup-cancel">Cancel</button>
+    <button class="primary" id="popup-save">Highlight</button>
+  </div>
+</div>
+
+<script>
+const docId = parseInt(location.pathname.split("/").pop(), 10);
+const content = document.getElementById("content");
+const notesEl = document.getElementById("notes");
+const popup = document.getElementById("popup");
+let pending = null;   // {start,end,quote}
+let notes = [];
+
+const author = () => localStorage.getItem("mdboard_author") || "anonymous";
+
+// ---- offset helpers: character offset within content's text ----
+function textNodes(el){
+  const out=[], w=document.createTreeWalker(el, NodeFilter.SHOW_TEXT);
+  let n; while(n=w.nextNode()) out.push(n); return out;
+}
+// offset of a (node,offset) boundary, measured as text length before it
+function boundaryOffset(node, offset){
+  const r=document.createRange();
+  r.selectNodeContents(content);
+  r.setEnd(node, offset);
+  return r.toString().length;
+}
+// wrap [start,end) of content's text in <mark> — safe across element boundaries.
+// textContent length is unchanged by wrapping, so multiple highlights compose.
+function wrapRange(start, end, id){
+  const targets=[]; let pos=0;
+  for(const node of textNodes(content)){
+    const len=node.nodeValue.length, ns=pos, ne=pos+len;
+    if(len>0 && ne>start && ns<end){
+      targets.push({node, s:Math.max(start,ns)-ns, e:Math.min(end,ne)-ns});
+    }
+    pos+=len;
+  }
+  for(const t of targets){
+    if(t.e>t.s){
+      const r=document.createRange();
+      r.setStart(t.node,t.s); r.setEnd(t.node,t.e);
+      const m=document.createElement("mark");
+      m.className="hl"; m.dataset.id=id;
+      try{ r.surroundContents(m); }catch(e){/* skip ranges crossing element edges */}
+    }
+  }
+}
+
+async function load(){
+  const r = await fetch(`/api/docs/${docId}`);
+  if(!r.ok){ content.innerHTML = "<p class='empty'>Document not found.</p>"; document.getElementById("title").textContent="Not found"; return; }
+  const doc = await r.json();
+  document.getElementById("title").textContent = doc.title;
+  document.getElementById("meta").textContent = `by ${doc.author} · ${doc.created_at}`;
+  document.title = "MDBoard · " + doc.title;
+  content.innerHTML = doc.html;
+  await loadNotes();
+}
+
+async function loadNotes(){
+  notes = await (await fetch(`/api/docs/${docId}/notes`)).json();
+  // re-render highlights: reload html-free? highlights are additive over current DOM.
+  // Remove existing marks first by reloading content is overkill; instead apply on fresh content.
+  notes.forEach(n => wrapRange(n.start_pos, n.end_pos, n.id));
+  renderNotesList();
+  bindMarks();
+}
+
+function renderNotesList(){
+  if(!notes.length){ notesEl.innerHTML = "<p class='empty'>Select any text in the document to add a note.</p>"; return; }
+  notesEl.innerHTML = "";
+  notes.forEach(n => {
+    const c = document.createElement("div");
+    c.className = "note-card"; c.dataset.id = n.id;
+    c.innerHTML = `<div class="quote">“${escapeHtml(n.quote)}”</div>
+      ${n.note ? `<div class="body">${escapeHtml(n.note)}</div>` : ""}
+      <div class="foot"><span>${escapeHtml(n.author)}</span><a class="del" href="#">delete</a></div>`;
+    c.querySelector(".del").addEventListener("click", async (e)=>{
+      e.preventDefault(); e.stopPropagation();
+      await fetch(`/api/notes/${n.id}`, {method:"DELETE"});
+      reload();
+    });
+    c.addEventListener("click", ()=> focusMark(n.id));
+    notesEl.appendChild(c);
+  });
+}
+
+function bindMarks(){
+  document.querySelectorAll("mark.hl").forEach(m=>{
+    m.addEventListener("click", ()=> focusMark(m.dataset.id));
+  });
+}
+function focusMark(id){
+  document.querySelectorAll("mark.hl.active").forEach(m=>m.classList.remove("active"));
+  const m = document.querySelector(`mark.hl[data-id="${id}"]`);
+  if(m){ m.classList.add("active"); m.scrollIntoView({behavior:"smooth", block:"center"}); }
+  document.querySelectorAll(".note-card").forEach(c=>c.style.outline = c.dataset.id===String(id) ? "1px solid var(--accent)" : "none");
+}
+
+function reload(){ // simplest correct refresh: rebuild content + notes
+  load();
+}
+
+function escapeHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
+
+// ---- selection -> popup ----
+content.addEventListener("mouseup", ()=>{
+  const sel = window.getSelection();
+  if(!sel.rangeCount || sel.isCollapsed){ hidePopup(); return; }
+  const range = sel.getRangeAt(0);
+  if(!content.contains(range.startContainer) || !content.contains(range.endContainer)){ hidePopup(); return; }
+  const quote = sel.toString().trim();
+  if(!quote){ hidePopup(); return; }
+  const start = boundaryOffset(range.startContainer, range.startOffset);
+  const end   = boundaryOffset(range.endContainer, range.endOffset);
+  pending = {start:Math.min(start,end), end:Math.max(start,end), quote};
+  const rect = range.getBoundingClientRect();
+  popup.style.left = (window.scrollX + rect.left) + "px";
+  popup.style.top  = (window.scrollY + rect.bottom + 8) + "px";
+  popup.style.display = "block";
+  document.getElementById("popup-note").value = "";
+  document.getElementById("popup-note").focus();
+});
+
+function hidePopup(){ popup.style.display="none"; pending=null; }
+document.getElementById("popup-cancel").addEventListener("click", hidePopup);
+document.getElementById("popup-save").addEventListener("click", async ()=>{
+  if(!pending) return;
+  const note = document.getElementById("popup-note").value.trim();
+  await fetch(`/api/docs/${docId}/notes`, {
+    method:"POST", headers:{"Content-Type":"application/json"},
+    body: JSON.stringify({quote:pending.quote, note, author:author(),
+                          start_pos:pending.start, end_pos:pending.end})
+  });
+  window.getSelection().removeAllRanges();
+  hidePopup();
+  reload();
+});
+document.addEventListener("mousedown", (e)=>{ if(!popup.contains(e.target) && e.target.tagName!=="MARK") { /* keep until mouseup handles */ } });
+
+load();
+</script>
+</body>
+</html>

@@ -3,3 +3,4 @@ __pycache__/
 build-plan.log
 mdboard.db
 server.log
+.aider*
