@@ -45,8 +45,13 @@ place to live with the two things a review actually needs:
   - charts that fail to parse fall back to a readable source listing.
 - **Authors remembered** — the author name is persisted in `localStorage`,
   per browser.
+- **Mobile responsive** — the board and viewer adapt to phones: stacked
+  layout, full-width inputs, touch-friendly note-taking (long-press to
+  select), and a fixed-overlay fallback where the browser lacks the
+  Fullscreen API (iPhone Safari).
 
 ![A mermaid xychart with the chart toolbar](docs/screenshot-xychart.png)
+![The document viewer on a phone-sized screen](docs/screenshot-mobile.png)
 
 ## Quickstart
 

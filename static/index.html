@@ -5,16 +5,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>BOARD</title>
     <style>
+        html { color-scheme: dark; }
         body {
             background-color: #0d1117;
             color: #e6edf3;
             font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, 'Open Sans', 'Helvetica Neue', sans-serif;
             margin: 0;
-            padding: 0;
+            padding: 24px 0;
             display: flex;
             justify-content: center;
-            align-items: center;
-            height: 100vh;
+            align-items: flex-start;
+            min-height: 100vh;
+            box-sizing: border-box;
         }
         .container {
             max-width: 800px;
@@ -34,6 +36,7 @@
             margin-bottom: 10px;
             display: flex;
             flex-direction: column;
+            align-items: flex-start;
         }
         .card a {
             color: #e6edf3;
@@ -68,19 +71,34 @@
             padding: 10px;
             border: 1px solid #30363d;
             border-radius: 4px;
+            width: 100%;
+            box-sizing: border-box;
+            font-size: 16px; /* >=16px stops iOS Safari from zooming on focus */
+            font-family: inherit;
+            background: #0d1117;
+            color: #e6edf3;
         }
+        .new-doc-panel input::placeholder, .new-doc-panel textarea::placeholder { color: #8b949e; }
+        .new-doc-panel textarea { min-height: 160px; resize: vertical; }
         .new-doc-panel button {
             background-color: #58a6ff;
             border: none;
             border-radius: 4px;
-            padding: 10px 20px;
+            padding: 12px 20px;
             cursor: pointer;
+            width: 100%;
+            font-size: 16px;
         }
         .new-doc-panel button:hover {
             background-color: #3498db;
         }
         .new-doc-panel button:active {
             background-color: #2980b9;
+        }
+        @media (max-width: 600px) {
+            body { padding: 12px 0; }
+            .container { padding: 12px; }
+            .panel, .card { padding: 14px; }
         }
     </style>
 </head>
@@ -182,7 +200,7 @@
                     fetchDocs();
                 } else {
                     const error = await response.json();
-                    alert(error.message);
+                    alert(error.error || 'Failed to add document');
                 }
             } catch (error) {
                 console.error('Error adding doc:', error);

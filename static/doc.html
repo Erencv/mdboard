@@ -8,6 +8,7 @@
 <script src="/static/mermaid.min.js"></script>
 <style>
   :root{
+    color-scheme:dark;
     --bg:#0d1117; --panel:#161b22; --text:#e6edf3; --muted:#8b949e;
     --accent:#58a6ff; --border:#30363d; --hl:#f2cc6055; --hl-strong:#f2cc60;
   }
@@ -16,10 +17,11 @@
     font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
     line-height:1.6}
   header{position:sticky;top:0;background:var(--panel);border-bottom:1px solid var(--border);
-    padding:12px 20px;display:flex;align-items:center;gap:16px;z-index:20}
+    padding:12px 20px;display:flex;align-items:center;gap:16px;z-index:20;flex-wrap:wrap}
   header a.back{color:var(--accent);text-decoration:none;font-size:14px;white-space:nowrap}
   header .meta{color:var(--muted);font-size:13px}
-  header h1{font-size:16px;margin:0;font-weight:600}
+  header h1{font-size:16px;margin:0;font-weight:600;min-width:0;flex:1;
+    overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .wrap{display:flex;gap:24px;max-width:1200px;margin:0 auto;padding:24px 20px;align-items:flex-start}
   #content{flex:1;min-width:0;background:var(--panel);border:1px solid var(--border);
     border-radius:8px;padding:28px 32px}
@@ -32,7 +34,7 @@
     padding-left:8px;margin-bottom:6px;font-size:13px}
   .note-card .body{color:var(--text)}
   .note-card .foot{color:var(--muted);font-size:12px;margin-top:8px;display:flex;justify-content:space-between}
-  .note-card .del{color:#f85149;text-decoration:none}
+  .note-card .del{color:#f85149;text-decoration:none;padding:6px 8px;margin:-6px -8px} /* larger tap target */
   .empty{color:var(--muted);font-size:14px}
   mark.hl{background:var(--hl);color:inherit;border-radius:2px;padding:1px 0;cursor:pointer}
   mark.hl.active{background:var(--hl-strong);color:#0d1117}
@@ -70,20 +72,38 @@
   .chart-frame.is-fullscreen{display:flex;flex-direction:column;width:100vw;height:100vh;max-width:none;
     border:none;border-radius:0;background:var(--bg)}
   .chart-frame.is-fullscreen .chart-canvas{flex:1;min-height:0;padding:16px}
-  .chart-frame.is-fullscreen .chart-toolbar{top:12px;right:12px;opacity:1}
+  .chart-frame.is-fullscreen .chart-toolbar{top:calc(12px + env(safe-area-inset-top,0px));right:12px;opacity:1}
+  /* fixed-overlay fallback where the Fullscreen API is unavailable (iPhone Safari) */
+  .chart-frame.is-pseudo-fullscreen{position:fixed;inset:0;z-index:1000;border:none;border-radius:0}
+  body.chart-fs-lock{overflow:hidden}
   /* render failure */
   .chart-error-banner{padding:8px 14px;color:#f85149;font-size:13px;border-bottom:1px solid var(--border)}
   .chart-src{margin:0;padding:14px;overflow:auto;max-height:60vh;user-select:text;-webkit-user-select:text;
     font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:12px;line-height:1.5;color:var(--text)}
   /* selection popup */
   #popup{position:absolute;display:none;background:var(--panel);border:1px solid var(--border);
-    border-radius:8px;padding:10px;box-shadow:0 8px 24px #0008;z-index:30;width:260px}
+    border-radius:8px;padding:10px;box-shadow:0 8px 24px #0008;z-index:30;width:min(260px,calc(100vw - 16px))}
   #popup textarea{width:100%;height:60px;background:var(--bg);color:var(--text);border:1px solid var(--border);
-    border-radius:6px;padding:8px;font-family:inherit;font-size:13px;resize:vertical}
+    border-radius:6px;padding:8px;font-family:inherit;font-size:16px;resize:vertical;box-sizing:border-box}
   #popup .row{display:flex;gap:8px;margin-top:8px;justify-content:flex-end}
   button{font-family:inherit;font-size:13px;border-radius:6px;padding:6px 12px;cursor:pointer;border:1px solid var(--border)}
   button.primary{background:var(--accent);color:#0d1117;border-color:var(--accent);font-weight:600}
   button.ghost{background:transparent;color:var(--muted)}
+  /* ---- mobile ---- */
+  @media (max-width: 900px){
+    .wrap{flex-direction:column;gap:16px;padding:16px 12px;max-width:640px}
+    aside{width:auto;position:static;flex-shrink:0}
+    #content{padding:20px 16px}
+    #content table{display:block;max-width:100%;overflow-x:auto}
+    .chart-frame{margin:16px 0}
+    .chart-frame.expanded{width:calc(100vw - 24px)}
+  }
+  @media (max-width: 480px){
+    header{padding:10px 12px;gap:10px}
+    .chart-toolbar button{width:24px;height:24px}
+    .chart-toolbar .zoom-pct{display:none}
+    #content{padding:16px 12px;border-radius:0;border-left:none;border-right:none}
+  }
 </style>
 </head>
 <body>
@@ -211,22 +231,52 @@ function reload(){ // simplest correct refresh: rebuild content + notes
 function escapeHtml(s){ const d=document.createElement("div"); d.textContent=s; return d.innerHTML; }
 
 // ---- selection -> popup ----
-content.addEventListener("mouseup", ()=>{
+// Desktop: shows on mouseup, as before. Touch: a long-press selection never
+// fires a useful mouseup, so on coarse pointers we follow selectionchange.
+const noteInput = document.getElementById("popup-note");
+const coarsePointer = window.matchMedia("(hover: none)").matches;
+
+function selectionInfo(){
   const sel = window.getSelection();
-  if(!sel.rangeCount || sel.isCollapsed){ hidePopup(); return; }
+  if(!sel.rangeCount || sel.isCollapsed) return null;
   const range = sel.getRangeAt(0);
-  if(!content.contains(range.startContainer) || !content.contains(range.endContainer)){ hidePopup(); return; }
+  if(!content.contains(range.startContainer) || !content.contains(range.endContainer)) return null;
   const quote = sel.toString().trim();
-  if(!quote){ hidePopup(); return; }
+  if(!quote) return null;
   const start = boundaryOffset(range.startContainer, range.startOffset);
   const end   = boundaryOffset(range.endContainer, range.endOffset);
-  pending = {start:Math.min(start,end), end:Math.max(start,end), quote};
-  const rect = range.getBoundingClientRect();
-  popup.style.left = (window.scrollX + rect.left) + "px";
-  popup.style.top  = (window.scrollY + rect.bottom + 8) + "px";
+  return {start:Math.min(start,end), end:Math.max(start,end), quote, rect:range.getBoundingClientRect()};
+}
+
+function updateSelectionPopup(opts){
+  opts = opts || {};
+  const info = selectionInfo();
+  if(!info){ hidePopup(); return; }
+  const visible = popup.style.display === "block";
+  if(!opts.show && !visible) return; // fine pointers: only mouseup opens the popup
+  pending = {start:info.start, end:info.end, quote:info.quote};
+  const vw = document.documentElement.clientWidth;
+  const pw = Math.min(260, vw - 16);
+  let left = window.scrollX + info.rect.left;
+  left = Math.max(window.scrollX + 8, Math.min(left, window.scrollX + vw - pw - 8));
+  popup.style.width = pw + "px";
+  popup.style.left = left + "px";
+  popup.style.top  = (window.scrollY + info.rect.bottom + 8) + "px";
   popup.style.display = "block";
-  document.getElementById("popup-note").value = "";
-  document.getElementById("popup-note").focus();
+  if(opts.fresh || !visible) noteInput.value = "";
+  if(opts.focus) noteInput.focus();
+}
+
+content.addEventListener("mouseup", (e)=>
+  updateSelectionPopup({show:true, fresh:true, focus:e.isTrusted !== false}));
+
+let _selT = null;
+document.addEventListener("selectionchange", ()=>{
+  // don't dismiss while the user is typing a note into the popup
+  if(popup.style.display === "block" && popup.contains(document.activeElement)) return;
+  clearTimeout(_selT);
+  _selT = setTimeout(()=>
+    updateSelectionPopup({show: coarsePointer || popup.style.display === "block"}), 120);
 });
 
 function hidePopup(){ popup.style.display="none"; pending=null; }
@@ -416,12 +466,9 @@ function makeChartFrame(svgStr){
   }
 
   // ---- fullscreen ----
-  function toggleFullscreen(){
-    if (document.fullscreenElement) document.exitFullscreen();
-    else frame.requestFullscreen().catch(() => {});
-  }
-  frame._onFullscreenChange = () => {
-    const on = document.fullscreenElement === frame;
+  // Native Fullscreen API where available; a fixed-overlay fallback where it
+  // is not (iPhone Safari does not support element fullscreen).
+  function syncFsUi(on){
     frame.classList.toggle("is-fullscreen", on);
     fsBtn.innerHTML = on ? ICONS.exitFullscreen : ICONS.fullscreen;
     fsBtn.title = on ? "Exit fullscreen (Esc)" : "Fullscreen";
@@ -436,7 +483,34 @@ function makeChartFrame(svgStr){
     }
     tx = 0; ty = 0;
     update();
+  }
+  frame._onFullscreenChange = () => syncFsUi(document.fullscreenElement === frame);
+
+  const escHandler = (e) => {
+    if (e.key === "Escape" && frame.classList.contains("is-pseudo-fullscreen")) exitPseudoFullscreen();
   };
+  function enterPseudoFullscreen(){
+    frame.classList.add("is-pseudo-fullscreen");
+    document.body.classList.add("chart-fs-lock");
+    document.addEventListener("keydown", escHandler);
+    syncFsUi(true);
+  }
+  function exitPseudoFullscreen(){
+    frame.classList.remove("is-pseudo-fullscreen");
+    document.body.classList.remove("chart-fs-lock");
+    document.removeEventListener("keydown", escHandler);
+    syncFsUi(false);
+  }
+  function toggleFullscreen(){
+    if (document.fullscreenElement) { document.exitFullscreen(); return; }
+    if (frame.classList.contains("is-pseudo-fullscreen")) { exitPseudoFullscreen(); return; }
+    if (typeof frame.requestFullscreen === "function") {
+      const p = frame.requestFullscreen();
+      if (p && p.catch) p.catch(() => enterPseudoFullscreen());
+    } else {
+      enterPseudoFullscreen();
+    }
+  }
 
   // ---- interactions ----
   // ctrl/cmd + wheel zooms (this is also the trackpad pinch gesture);
