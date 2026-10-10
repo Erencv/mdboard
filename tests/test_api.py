@@ -79,3 +79,45 @@ def test_optional_title_from_first_line(client):
 def test_optional_title_untitled_when_no_text(client):
     r = client.post("/api/docs", json={"content": "# ", "author": "e"})
     assert r.status_code == 201 and r.json["title"] == "Untitled"
+
+
+# ---- mermaid chart rendering ----
+
+MERMAID_PIE = '```mermaid\npie showData\n    title T\n    "A" : 3\n```'
+
+def test_mermaid_block_renders_as_div(client):
+    doc_id = _mk(client, content="# Charts\n\n" + MERMAID_PIE + "\n\ntail").json["id"]
+    html = client.get(f"/api/docs/{doc_id}").json["html"]
+    assert '<div class="mermaid">pie showData' in html
+    assert "&quot;A&quot; : 3" in html           # source kept for client-side rendering
+    assert "codehilite" not in html         # not rendered as a code block
+    assert "<h1" in html and "tail" in html  # rest of the doc unaffected
+
+def test_mermaid_source_is_html_escaped(client):
+    content = '```mermaid\nflowchart TB\n    A["<&>"] --> B\n```'
+    doc_id = _mk(client, content=content).json["id"]
+    html = client.get(f"/api/docs/{doc_id}").json["html"]
+    assert 'A[&quot;&lt;&amp;&gt;&quot;]' in html  # nothing raw reaches the page
+    assert "--> B" not in html
+
+def test_multiple_mermaid_blocks_keep_order(client):
+    content = ("intro\n\n```mermaid\npie\n    \"one\" : 1\n```\n\n"
+               "mid\n\n```mermaid\npie\n    \"two\" : 2\n```\n")
+    doc_id = _mk(client, content=content).json["id"]
+    html = client.get(f"/api/docs/{doc_id}").json["html"]
+    assert html.count('<div class="mermaid">') == 2
+    assert html.index("&quot;one&quot;") < html.index("&quot;two&quot;")
+    assert "intro" in html and "mid" in html
+
+def test_normal_code_block_still_codehilite(client):
+    doc_id = _mk(client, content="```python\nx = 1\n```").json["id"]
+    html = client.get(f"/api/docs/{doc_id}").json["html"]
+    assert '<div class="codehilite">' in html
+    assert '<div class="mermaid">' not in html
+
+def test_mermaid_token_literal_not_swallowed(client):
+    # a user literally typing the internal placeholder must not become a chart
+    doc_id = _mk(client, content="MDBoardMermaidToken0").json["id"]
+    html = client.get(f"/api/docs/{doc_id}").json["html"]
+    assert "<p>MDBoardMermaidToken0</p>" in html
+    assert '<div class="mermaid">' not in html
